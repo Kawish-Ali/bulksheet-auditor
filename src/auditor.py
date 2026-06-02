@@ -69,7 +69,9 @@ def _safe_div(num: float, den: float) -> float | None:
 def _campaign_level(df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate keyword/entity rows up to campaign level."""
     if df.empty or "Campaign Name" not in df.columns:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["Campaign Name", "Impressions", "Clicks",
+                                     "Spend", "Sales", "Orders", "State",
+                                     "Portfolio", "ACoS"])
     agg_spec: dict = {
         "Impressions": ("Impressions", "sum"),
         "Clicks": ("Clicks", "sum"),
@@ -473,24 +475,30 @@ def compute_summary(
     if not all_frames:
         return SummaryMetrics()
 
-    # Select only the columns needed for summary — avoids concat failures from
-    # mismatched/duplicate column schemas across SP/SB/SD sheets
-    _NEEDED = ["Campaign Name", "Portfolio", "State", "Impressions", "Clicks", "Spend", "Sales", "Orders"]
-    frames_clean = []
+    # Sum account totals robustly across pandas versions. Prefer "Campaign"
+    # entity rows (campaign aggregates) to avoid double-counting ad-group/
+    # keyword rows; fall back to all rows. Every column access is guarded so
+    # a missing or renamed column can never raise KeyError.
+    parts = []
     for df in all_frames:
-        df_clean = df.loc[:, ~df.columns.duplicated()].copy()
-        available = [c for c in _NEEDED if c in df_clean.columns]
-        frames_clean.append(df_clean[available])
+        d = df.loc[:, ~df.columns.duplicated()].copy()
+        if "Entity" in d.columns:
+            camp_rows = d[d["Entity"].astype(str).str.strip().str.lower() == "campaign"]
+            if not camp_rows.empty:
+                d = camp_rows
+        parts.append(d)
+    combined = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
-    combined = pd.concat(frames_clean, ignore_index=True)
-    # Use campaign-level aggregation to avoid double-counting keyword rows
-    camp_level = _campaign_level(combined)
+    def _col_sum(col):
+        if col in combined.columns:
+            return float(pd.to_numeric(combined[col], errors="coerce").fillna(0).sum())
+        return 0.0
 
-    spend = camp_level["Spend"].sum()
-    sales = camp_level["Sales"].sum()
-    clicks = int(camp_level["Clicks"].sum())
-    impressions = int(camp_level["Impressions"].sum())
-    orders = int(camp_level["Orders"].sum())
+    spend = _col_sum("Spend")
+    sales = _col_sum("Sales")
+    clicks = int(_col_sum("Clicks"))
+    impressions = int(_col_sum("Impressions"))
+    orders = int(_col_sum("Orders"))
 
     return SummaryMetrics(
         total_spend=spend,
