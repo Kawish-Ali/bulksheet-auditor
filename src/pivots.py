@@ -92,12 +92,20 @@ SPEC = [
 
 def _num(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
+    lower = {str(c).strip().lower(): c for c in df.columns}
     for c in BASE:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-        else:
-            df[c] = 0.0
+        src = lower.get(c.lower())
+        df[c] = pd.to_numeric(df[src], errors="coerce").fillna(0) if src is not None else 0.0
     return df
+
+
+def _resolve_col(df, name):
+    """Case-insensitive, whitespace-tolerant column lookup. Amazon exports vary in
+    header casing across accounts/marketplaces (e.g. 'Campaign name' vs 'Campaign Name')."""
+    if name in df.columns:
+        return name
+    lower = {str(c).strip().lower(): c for c in df.columns}
+    return lower.get(str(name).strip().lower())
 
 
 def _blank_mask(s: pd.Series):
@@ -118,14 +126,18 @@ def _ratios(frame: pd.DataFrame) -> pd.DataFrame:
 def build(df: pd.DataFrame, rows: list, entity=None, extra=None):
     """Build one pivot table; returns a DataFrame (rows + 10 metric cols + Grand Total) or None."""
     d = _num(df)
-    if entity and "Entity" in d.columns:
-        d = d[d["Entity"].astype(str).str.strip().str.lower() == entity.lower()]
+    ent_col = _resolve_col(d, "Entity")
+    if entity and ent_col:
+        d = d[d[ent_col].astype(str).str.strip().str.lower() == entity.lower()]
     if extra == "zero_orders":
         d = d[d["Orders"] == 0]
+    actual_rows = []
     for f in rows:
-        if f not in d.columns:
+        col = _resolve_col(d, f)
+        if col is None:
             return None
-        d = d[_blank_mask(d[f])]
+        actual_rows.append(col)
+        d = d[_blank_mask(d[col])]
     if d.empty:
         return None
 
@@ -133,7 +145,7 @@ def build(df: pd.DataFrame, rows: list, entity=None, extra=None):
     # used as the row dimension in the orders-distribution pivots).
     d = d.copy()
     group_cols = []
-    for f in rows:
+    for f in actual_rows:
         if f in BASE or f in DISPLAY_COLS:
             gc = f"{f} (value)"
             d[gc] = d[f]
