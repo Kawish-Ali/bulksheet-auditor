@@ -161,9 +161,7 @@ r2[4].metric("ACOS", _pct(s.acos))
 
 st.markdown("---")
 
-tab_overview, tab_findings, tab_terms, tab_actions, tab_pivots = st.tabs(
-    ["Overview", "Findings", "Search Terms", "Action Plan", "Pivots"]
-)
+tab_overview, tab_pivots = st.tabs(["Overview", "Pivots"])
 
 with tab_overview:
     type_agg = dash.by_sponsored_type(data)
@@ -190,73 +188,6 @@ with tab_overview:
     if not intent_df.empty:
         st.subheader("Search Term Intent (by spend)")
         st.plotly_chart(dash.intent_donut(intent_df), use_container_width=True)
-
-with tab_findings:
-    fcol = st.columns(2)
-    sev_filter = fcol[0].multiselect("Severity", ["critical", "warning", "info"], default=["critical", "warning"])
-    modules = sorted({f.module for f in report.findings})
-    mod_filter = fcol[1].multiselect("Module", modules, default=modules)
-    shown = [f for f in report.findings if f.severity in sev_filter and f.module in mod_filter]
-    if not shown:
-        st.info("No findings match the current filters.")
-    for f in shown:
-        st.markdown(
-            f"<div class='sev-{f.severity}'><b>[{f.module}] {f.title}</b><br>"
-            f"<span style='font-size:13px;color:#555'>{f.detail}</span></div>",
-            unsafe_allow_html=True,
-        )
-        if isinstance(f.affected, pd.DataFrame) and not f.affected.empty:
-            with st.expander(f"View {len(f.affected)} affected rows"):
-                st.dataframe(f.affected, use_container_width=True, hide_index=True)
-        elif isinstance(f.affected, (list, set)) and f.affected:
-            with st.expander(f"View {len(f.affected)} items"):
-                st.write(sorted(str(x) for x in f.affected))
-
-with tab_terms:
-    st_table = dash.search_term_table(data)
-    if st_table.empty:
-        st.info("No Search Term Report data found in this file.")
-    else:
-        f = st.columns(4)
-        type_opts = sorted(st_table["Sponsored Type"].dropna().unique()) if "Sponsored Type" in st_table else []
-        sel_type = f[0].multiselect("Ad type", type_opts, default=type_opts)
-        min_spend = f[1].number_input("Min spend", 0.0, value=0.0, step=1.0)
-        only_zero_orders = f[2].checkbox("Zero-order only (negatives)")
-        sort_by = f[3].selectbox("Sort by", ["Spend", "ACoS", "Sales", "Orders", "Clicks"], index=0)
-        view = st_table.copy()
-        if sel_type and "Sponsored Type" in view:
-            view = view[view["Sponsored Type"].isin(sel_type)]
-        view = view[view["Spend"] >= min_spend]
-        if only_zero_orders:
-            view = view[view["Orders"] == 0]
-        view = view.sort_values(sort_by, ascending=False)
-        st.caption(f"{len(view):,} search terms, {cur}{view['Spend'].sum():,.2f} spend")
-        st.dataframe(view, use_container_width=True, hide_index=True, height=440)
-        _csv_download("Download this view (CSV)", view, "search_terms.csv")
-
-with tab_actions:
-    st.subheader("Prioritized Action Plan")
-    if not recs:
-        st.info("No recommendations — the account looks healthy on the audited dimensions.")
-    for r in recs:
-        st.markdown(
-            f"<div class='rec-box'><b>{r.priority}. {r.title}</b>"
-            f"<div style='font-size:12px;color:#888'>{r.affected_summary}</div>"
-            f"<div style='font-size:13px;color:#555;margin:6px 0'>{r.issue}</div></div>",
-            unsafe_allow_html=True,
-        )
-        with st.expander("How to fix it"):
-            st.markdown(r.action.replace("\n", "  \n"))
-            st.success(f"Expected impact: {r.expected_impact}")
-    st.markdown("---")
-    st.subheader("Export flagged data")
-    ecol = st.columns(3)
-    with ecol[0]:
-        _csv_download("Negative-keyword candidates", _finding_affected(report, "WASTED_SEARCH_TERMS"), "negative_candidates.csv")
-    with ecol[1]:
-        _csv_download("Quick-win terms (promote to Exact)", _finding_affected(report, "QUICK_WIN_EXACT_PROMOTE"), "quick_wins.csv")
-    with ecol[2]:
-        _csv_download("High-ACoS keywords", _finding_affected(report, "HIGH_ACOS_KEYWORDS"), "high_acos_keywords.csv")
 
 with tab_pivots:
     st.caption("Standard bulk-file breakdowns, computed live from your upload. Filter any table and its Grand Total updates with the filter.")
