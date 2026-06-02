@@ -86,15 +86,55 @@ def _csv_download(label, df, filename):
                        file_name=filename, mime="text/csv", use_container_width=True)
 
 
-def _pivot_colcfg(df, cur):
-    out = {}
-    for c in df.columns:
+def _format_pivot_display(df, cur):
+    """Format a pivot table for display: thousands separators, currency, percent,
+    and blank (not 'None'/'NaN') for missing values."""
+    out = df.copy()
+
+    def f_int(v):
+        if pd.isna(v):
+            return ""
+        try:
+            return f"{int(round(float(v))):,}"
+        except (TypeError, ValueError):
+            return ""
+
+    def f_money(v):
+        if pd.isna(v):
+            return ""
+        try:
+            return f"{cur}{float(v):,.2f}"
+        except (TypeError, ValueError):
+            return ""
+
+    def f_pct(v):
+        if pd.isna(v):
+            return ""
+        try:
+            return f"{float(v):.2f}%"
+        except (TypeError, ValueError):
+            return ""
+
+    def f_dim(v):
+        if v is None:
+            return ""
+        if isinstance(v, float) and pd.isna(v):
+            return ""
+        if isinstance(v, (int, float)):
+            fv = float(v)
+            return f"{int(fv):,}" if fv == int(fv) else f"{fv:,.2f}"
+        sv = str(v)
+        return "" if sv.strip().lower() in ("nan", "none") else sv
+
+    for c in out.columns:
         if c in ("Impressions", "Clicks", "Orders"):
-            out[c] = st.column_config.NumberColumn(format="%d")
+            out[c] = out[c].map(f_int)
         elif c in ("Spend", "Sales", "CPC", "CPA"):
-            out[c] = st.column_config.NumberColumn(format=f"{cur}%.2f")
+            out[c] = out[c].map(f_money)
         elif c in ("CTR", "CNVR", "ACOS"):
-            out[c] = st.column_config.NumberColumn(format="%.2f%%")
+            out[c] = out[c].map(f_pct)
+        else:
+            out[c] = out[c].map(f_dim)
     return out
 
 
@@ -219,8 +259,8 @@ with tab_pivots:
                     if q:
                         view = view[view[dim_cols[0]].astype(str).str.contains(q, case=False, na=False)]
                     disp = pd.concat([view, pv.grand_total(view, dim_cols)], ignore_index=True)
-                    st.dataframe(disp, use_container_width=True, hide_index=True,
-                                 column_config=_pivot_colcfg(disp, cur))
+                    st.dataframe(_format_pivot_display(disp, cur),
+                                 use_container_width=True, hide_index=True)
                     fn = f"{src_label}_{tbl_label}.csv".replace(" ", "_").replace("×", "x")
                     _csv_download(f"Download {tbl_label} (CSV)", disp, fn)
 
