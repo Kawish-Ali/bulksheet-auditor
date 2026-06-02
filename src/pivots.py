@@ -38,6 +38,10 @@ SOURCE_LABELS = {
     "sb_str":       "SB Search Terms",
 }
 SOURCE_ORDER = ["sp_campaigns", "sb_campaigns", "sb_multi", "sp_str", "sb_str"]
+SRC_ABBR = {
+    "SP Campaigns": "SP", "SB Campaigns": "SBC", "SB Multi Ad Group": "SBM",
+    "SP Search Terms": "SP-STR", "SB Search Terms": "SB-STR",
+}
 
 # (label, sheet_key, row_fields, entity_filter, extra)
 SPEC = [
@@ -184,3 +188,30 @@ def build_all(source) -> dict:
         if table is not None:
             result[SOURCE_LABELS[key]].append((label, table))
     return {k: v for k, v in result.items() if v}
+
+
+def to_excel_bytes(all_pivots: dict) -> bytes:
+    """Pack every pivot table into a single .xlsx (one sheet per table)."""
+    import io
+    buf = io.BytesIO()
+    used = set()
+    with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+        wrote = False
+        for src_label, tables in all_pivots.items():
+            abbr = SRC_ABBR.get(src_label, src_label[:6])
+            for tbl_label, df in tables:
+                name = f"{abbr} {tbl_label}"
+                for ch in '[]:*?/\\':
+                    name = name.replace(ch, "-")
+                name = (name[:31].strip() or "Sheet")
+                base, i = name, 1
+                while name.lower() in used:
+                    sfx = f"~{i}"
+                    name = base[:31 - len(sfx)] + sfx
+                    i += 1
+                used.add(name.lower())
+                df.to_excel(xw, sheet_name=name, index=False)
+                wrote = True
+        if not wrote:
+            pd.DataFrame({"info": ["No pivots available"]}).to_excel(xw, sheet_name="Empty", index=False)
+    return buf.getvalue()
