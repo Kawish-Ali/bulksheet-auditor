@@ -327,3 +327,30 @@ def load_bulk_file(source) -> dict:
         "sheets_found": sheets_found,
         "errors":       errors,
     }
+
+
+CURRENCY_SYMBOLS = {
+    "USD": "$", "GBP": "\u00a3", "EUR": "\u20ac", "CAD": "C$", "AUD": "A$",
+    "JPY": "\u00a5", "INR": "\u20b9", "MXN": "MX$", "BRL": "R$", "SEK": "kr",
+    "PLN": "z\u0142", "TRY": "\u20ba", "SGD": "S$", "AED": "AED ", "SAR": "SAR ",
+    "NOK": "kr", "DKK": "kr", "CHF": "CHF ", "CNY": "\u00a5", "HKD": "HK$",
+}
+
+
+def detect_currency(portfolios):
+    """Detect account currency from the Portfolios 'Budget currency code' column.
+    Returns (symbol, code, mixed_flag). Defaults to USD when no signal exists;
+    cross-currency conversion is not performed offline, so the dominant code is used."""
+    if portfolios is None or len(portfolios) == 0:
+        return "$", "USD", False
+    col = next((c for c in portfolios.columns if "currency code" in str(c).lower()), None)
+    if not col:
+        return "$", "USD", False
+    vals = [str(v).strip().upper() for v in portfolios[col]
+            if str(v).strip() and str(v).strip().lower() != "nan"]
+    if not vals:
+        return "$", "USD", False
+    from collections import Counter
+    code = Counter(vals).most_common(1)[0][0]
+    mixed = len(set(vals)) > 1
+    return CURRENCY_SYMBOLS.get(code, code + " "), code, mixed
