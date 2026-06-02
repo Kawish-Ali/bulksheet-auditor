@@ -1,18 +1,14 @@
 """
 BulkSheet Auditor 2.0 — Interactive web dashboard (Streamlit).
 
-Public flow:
-  1. User uploads a file
-  2. We VALIDATE it's a real Amazon Ads bulk sheet (reject anything else)
-  3. We parse + audit + score
-  4. We render an interactive dashboard: KPI cards, charts, filterable tables,
-     prioritized recommendations, and CSV exports of flagged data.
-
-Run locally:   streamlit run app.py
-Deploy free:   push to GitHub → share.streamlit.io → New app
+Upload an Amazon Ads bulk sheet, then: validate, parse, audit, and explore an
+interactive dashboard with headline metrics, findings, a search-term explorer,
+dynamic pivots, and a prioritized action plan. Fully offline; the uploaded file
+is processed in memory and never stored.
 """
 
 import sys
+import io
 from pathlib import Path
 
 import pandas as pd
@@ -22,35 +18,29 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import config as cfg
 from src.validator import validate_bulk_file
-from src.parser import load_bulk_file
+from src.parser import load_bulk_file, detect_currency
 from src.auditor import run_audit
 from src.recommender import generate_recommendations
 from src import dashboard as dash
 from src import pivots as pv
 
-st.set_page_config(page_title="BulkSheet Auditor 2.0", page_icon="📊", layout="wide")
+st.set_page_config(page_title="BulkSheet Auditor", layout="wide")
 
-
-# ── Styling ──────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
   .block-container{padding-top:2rem;max-width:1200px}
-  .score-badge{text-align:center;padding:14px;border-radius:12px;color:#fff}
-  .sev-critical{border-left:4px solid #e74c3c;background:#fff5f5;padding:10px 14px;border-radius:6px;margin-bottom:8px}
-  .sev-warning{border-left:4px solid #f39c12;background:#fffbf0;padding:10px 14px;border-radius:6px;margin-bottom:8px}
-  .sev-info{border-left:4px solid #4361ee;background:#f0f7ff;padding:10px 14px;border-radius:6px;margin-bottom:8px}
-  .rec-box{border:1px solid #e8ecf0;border-radius:8px;padding:14px 16px;margin-bottom:10px}
+  .sev-critical{border-left:4px solid #b91c1c;background:#fdf2f2;padding:10px 14px;border-radius:6px;margin-bottom:8px}
+  .sev-warning{border-left:4px solid #b45309;background:#fffaf0;padding:10px 14px;border-radius:6px;margin-bottom:8px}
+  .sev-info{border-left:4px solid #1d4ed8;background:#f1f5fd;padding:10px 14px;border-radius:6px;margin-bottom:8px}
+  .rec-box{border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-bottom:10px}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Cached heavy work (keyed on file bytes) ──────────────────────────────────
 @st.cache_data(show_spinner=False)
 def _process(file_bytes: bytes, acos_target: float, brand_terms: tuple):
-    import io
     cfg.ACOS_TARGET = acos_target
-    buf = io.BytesIO(file_bytes)
-    data = load_bulk_file(buf)
+    data = load_bulk_file(io.BytesIO(file_bytes))
     report = run_audit(data, brand_terms=list(brand_terms) if brand_terms else None)
     recs = generate_recommendations(report)
     return data, report, recs
@@ -58,28 +48,28 @@ def _process(file_bytes: bytes, acos_target: float, brand_terms: tuple):
 
 @st.cache_data(show_spinner=False)
 def _build_pivots(file_bytes: bytes):
-    import io
     return pv.build_all(io.BytesIO(file_bytes))
 
 
-def _pivot_colcfg(df):
-    cfg = {}
-    for c in df.columns:
-        if c in ("Impressions", "Clicks", "Orders"):
-            cfg[c] = st.column_config.NumberColumn(format="%d")
-        elif c in ("Spend", "Sales", "CPC", "CPA"):
-            cfg[c] = st.column_config.NumberColumn(format="$%.2f")
-        elif c in ("CTR", "CNVR", "ACOS"):
-            cfg[c] = st.column_config.NumberColumn(format="%.2f%%")
-    return cfg
+def _money(v, cur):
+    try:
+        return f"{cur}{float(v):,.2f}"
+    except (TypeError, ValueError):
+        return "—"
 
 
-def _fmt_pct(v):
-    return f"{v:.1%}" if v is not None else "—"
+def _pct(v):
+    try:
+        return f"{float(v) * 100:.2f}%"
+    except (TypeError, ValueError):
+        return "—"
 
 
-def _fmt_money(v):
-    return f"${v:,.2f}" if v is not None else "—"
+def _intf(v):
+    try:
+        return f"{int(v):,}"
+    except (TypeError, ValueError):
+        return "—"
 
 
 def _finding_affected(report, code):
@@ -96,99 +86,95 @@ def _csv_download(label, df, filename):
                        file_name=filename, mime="text/csv", use_container_width=True)
 
 
-# Defaults (sidebar removed — runs with sensible defaults)
-acos_target = cfg.ACOS_TARGET   # 30% target for scoring + chart thresholds
-brand_terms = ()                # no branded-term classification by default
+def _pivot_colcfg(df, cur):
+    out = {}
+    for c in df.columns:
+        if c in ("Impressions", "Clicks", "Orders"):
+            out[c] = st.column_config.NumberColumn(format="%d")
+        elif c in ("Spend", "Sales", "CPC", "CPA"):
+            out[c] = st.column_config.NumberColumn(format=f"{cur}%.2f")
+        elif c in ("CTR", "CNVR", "ACOS"):
+            out[c] = st.column_config.NumberColumn(format="%.2f%%")
+    return out
 
 
-# ── Header ───────────────────────────────────────────────────────────────────
-st.title("📊 Amazon PPC BulkSheet Auditor")
-st.caption("Drop your Amazon Ads bulk file. Get an instant health score, findings, and a prioritized action plan.")
+acos_target = cfg.ACOS_TARGET
+brand_terms = ()
+
+st.title("Amazon PPC BulkSheet Auditor")
+st.caption("Upload an Amazon Ads bulk sheet to get account metrics, findings, breakdowns, and a prioritized action plan.")
 
 uploaded = st.file_uploader(
     "Upload your Amazon Ads bulk sheet (.xlsx)",
     type=["xlsx"],
-    help="Download it from Amazon Ads Console → Sponsored ads → Bulk operations.",
+    help="Download it from Amazon Ads Console, Sponsored ads, Bulk operations.",
 )
 
 if uploaded is None:
-    st.info("👆 Upload a bulk sheet to begin. The file is processed in memory and never stored.")
+    st.info("Upload a bulk sheet to begin. The file is processed in memory and never stored.")
     st.stop()
 
 file_bytes = uploaded.getvalue()
 
-# ── Step 1: Validate ─────────────────────────────────────────────────────────
-import io
 with st.spinner("Verifying the file is an Amazon bulk sheet..."):
     vres = validate_bulk_file(io.BytesIO(file_bytes))
 
 if not vres.is_valid:
-    st.error(f"❌ **Not a valid bulk sheet** — detected: *{vres.file_type}*")
+    st.error(f"Not a valid bulk sheet — detected: {vres.file_type}")
     st.warning(vres.reason)
     if vres.sheets_found:
-        with st.expander("Sheets we found in your file"):
+        with st.expander("Sheets found in your file"):
             st.write(vres.sheets_found)
     st.stop()
 
-st.success(f"✅ Valid Amazon Ads bulk sheet — campaign sheets: {', '.join(vres.campaign_sheets)}")
+st.success(f"Valid Amazon Ads bulk sheet. Campaign sheets: {', '.join(vres.campaign_sheets)}")
 for w in vres.warnings:
-    st.caption(f"⚠️ {w}")
+    st.caption(w)
 
-# ── Step 2: Parse + Audit ────────────────────────────────────────────────────
-with st.spinner("Parsing and auditing your account... (large files take a moment)"):
+with st.spinner("Parsing and auditing your account..."):
     data, report, recs = _process(file_bytes, acos_target, brand_terms)
 
-if data["errors"]:
-    with st.expander("Parser notes"):
-        for e in data["errors"]:
-            st.caption(e)
+cur, cur_code, cur_mixed = detect_currency(data.get("portfolios"))
+if cur_mixed:
+    st.warning(
+        f"Multiple currencies detected in this file; showing {cur_code}. "
+        "Amazon bulk files are normally single-currency — verify the source. "
+        "Cross-currency conversion is not applied."
+    )
 
 s = report.summary
+cpa = (s.total_spend / s.total_orders) if s.total_orders else None
 
-# ── Score + KPI cards ────────────────────────────────────────────────────────
-score_color = "#16A34A" if report.score >= 75 else "#D97706" if report.score >= 50 else "#DC2626"
-score_label = "GOOD" if report.score >= 75 else "NEEDS WORK" if report.score >= 50 else "CRITICAL"
-
-top = st.columns([1, 3])
-with top[0]:
-    st.markdown(
-        f"<div class='score-badge' style='background:{score_color}'>"
-        f"<div style='font-size:46px;font-weight:800;line-height:1'>{report.score}</div>"
-        f"<div style='font-size:12px;letter-spacing:1px'>HEALTH SCORE</div>"
-        f"<div style='font-size:13px;margin-top:4px'>{score_label}</div></div>",
-        unsafe_allow_html=True,
-    )
-with top[1]:
-    k = st.columns(4)
-    k[0].metric("Spend", _fmt_money(s.total_spend))
-    k[1].metric("Sales", _fmt_money(s.total_sales))
-    k[2].metric("ACoS", _fmt_pct(s.acos))
-    k[3].metric("ROAS", f"{s.roas:.2f}x" if s.roas else "—")
-    k2 = st.columns(4)
-    k2[0].metric("Impressions", f"{s.total_impressions:,}")
-    k2[1].metric("Clicks", f"{s.total_clicks:,}")
-    k2[2].metric("Orders", f"{s.total_orders:,}")
-    k2[3].metric("CVR", _fmt_pct(s.cvr))
+# Headline metrics — fixed order: Impressions, Clicks, CTR, Orders, CNVR, CPC, CPA, Spend, Sales, ACOS
+r1 = st.columns(5)
+r1[0].metric("Impressions", _intf(s.total_impressions))
+r1[1].metric("Clicks", _intf(s.total_clicks))
+r1[2].metric("CTR", _pct(s.ctr))
+r1[3].metric("Orders", _intf(s.total_orders))
+r1[4].metric("CNVR", _pct(s.cvr))
+r2 = st.columns(5)
+r2[0].metric("CPC", _money(s.cpc, cur))
+r2[1].metric("CPA", _money(cpa, cur))
+r2[2].metric("Spend", _money(s.total_spend, cur))
+r2[3].metric("Sales", _money(s.total_sales, cur))
+r2[4].metric("ACOS", _pct(s.acos))
 
 st.markdown("---")
 
-# ── Tabs ─────────────────────────────────────────────────────────────────────
 tab_overview, tab_findings, tab_terms, tab_actions, tab_pivots = st.tabs(
-    ["📈 Overview", "🔎 Findings", "🔍 Search Terms", "💡 Action Plan", "📐 Pivots"]
+    ["Overview", "Findings", "Search Terms", "Action Plan", "Pivots"]
 )
 
-# ---- Overview (charts) -------------------------------------------------------
 with tab_overview:
     type_agg = dash.by_sponsored_type(data)
     c1, c2 = st.columns(2)
     if not type_agg.empty:
         with c1:
             st.subheader("Spend vs Sales by Ad Type")
-            st.plotly_chart(dash.spend_vs_sales(type_agg, "Sponsored Type"), use_container_width=True)
+            st.plotly_chart(dash.spend_vs_sales(type_agg, "Sponsored Type", cur), use_container_width=True)
         with c2:
             st.subheader("ACoS by Ad Type")
             st.plotly_chart(dash.acos_bar(type_agg, "Sponsored Type", acos_target * 100), use_container_width=True)
-
     port_agg = dash.by_portfolio(data)
     mt = dash.match_type_spend(data)
     c3, c4 = st.columns(2)
@@ -200,21 +186,16 @@ with tab_overview:
         with c4:
             st.subheader("Spend by Match Type")
             st.plotly_chart(dash.match_type_donut(mt), use_container_width=True)
-
-    # Intent donut from the audit finding
     intent_df = _finding_affected(report, "INTENT_BREAKDOWN")
     if not intent_df.empty:
         st.subheader("Search Term Intent (by spend)")
         st.plotly_chart(dash.intent_donut(intent_df), use_container_width=True)
 
-# ---- Findings (filterable) ---------------------------------------------------
 with tab_findings:
     fcol = st.columns(2)
-    sev_filter = fcol[0].multiselect("Severity", ["critical", "warning", "info"],
-                                     default=["critical", "warning"])
+    sev_filter = fcol[0].multiselect("Severity", ["critical", "warning", "info"], default=["critical", "warning"])
     modules = sorted({f.module for f in report.findings})
     mod_filter = fcol[1].multiselect("Module", modules, default=modules)
-
     shown = [f for f in report.findings if f.severity in sev_filter and f.module in mod_filter]
     if not shown:
         st.info("No findings match the current filters.")
@@ -231,7 +212,6 @@ with tab_findings:
             with st.expander(f"View {len(f.affected)} items"):
                 st.write(sorted(str(x) for x in f.affected))
 
-# ---- Search Terms explorer ---------------------------------------------------
 with tab_terms:
     st_table = dash.search_term_table(data)
     if st_table.empty:
@@ -240,10 +220,9 @@ with tab_terms:
         f = st.columns(4)
         type_opts = sorted(st_table["Sponsored Type"].dropna().unique()) if "Sponsored Type" in st_table else []
         sel_type = f[0].multiselect("Ad type", type_opts, default=type_opts)
-        min_spend = f[1].number_input("Min spend ($)", 0.0, value=0.0, step=1.0)
+        min_spend = f[1].number_input("Min spend", 0.0, value=0.0, step=1.0)
         only_zero_orders = f[2].checkbox("Zero-order only (negatives)")
         sort_by = f[3].selectbox("Sort by", ["Spend", "ACoS", "Sales", "Orders", "Clicks"], index=0)
-
         view = st_table.copy()
         if sel_type and "Sponsored Type" in view:
             view = view[view["Sponsored Type"].isin(sel_type)]
@@ -251,12 +230,10 @@ with tab_terms:
         if only_zero_orders:
             view = view[view["Orders"] == 0]
         view = view.sort_values(sort_by, ascending=False)
-
-        st.caption(f"{len(view):,} search terms · ${view['Spend'].sum():,.2f} spend")
+        st.caption(f"{len(view):,} search terms, {cur}{view['Spend'].sum():,.2f} spend")
         st.dataframe(view, use_container_width=True, hide_index=True, height=440)
-        _csv_download("⬇️ Download this view (CSV)", view, "search_terms.csv")
+        _csv_download("Download this view (CSV)", view, "search_terms.csv")
 
-# ---- Action Plan + exports ---------------------------------------------------
 with tab_actions:
     st.subheader("Prioritized Action Plan")
     if not recs:
@@ -271,32 +248,25 @@ with tab_actions:
         with st.expander("How to fix it"):
             st.markdown(r.action.replace("\n", "  \n"))
             st.success(f"Expected impact: {r.expected_impact}")
-
     st.markdown("---")
     st.subheader("Export flagged data")
-    e = st.columns(3)
-    with e[0]:
-        _csv_download("Negative-keyword candidates",
-                      _finding_affected(report, "WASTED_SEARCH_TERMS"), "negative_candidates.csv")
-    with e[1]:
-        _csv_download("Quick-win terms (promote to Exact)",
-                      _finding_affected(report, "QUICK_WIN_EXACT_PROMOTE"), "quick_wins.csv")
-    with e[2]:
-        _csv_download("High-ACoS keywords",
-                      _finding_affected(report, "HIGH_ACOS_KEYWORDS"), "high_acos_keywords.csv")
+    ecol = st.columns(3)
+    with ecol[0]:
+        _csv_download("Negative-keyword candidates", _finding_affected(report, "WASTED_SEARCH_TERMS"), "negative_candidates.csv")
+    with ecol[1]:
+        _csv_download("Quick-win terms (promote to Exact)", _finding_affected(report, "QUICK_WIN_EXACT_PROMOTE"), "quick_wins.csv")
+    with ecol[2]:
+        _csv_download("High-ACoS keywords", _finding_affected(report, "HIGH_ACOS_KEYWORDS"), "high_acos_keywords.csv")
 
-
-# ---- Pivots (dynamic bulk-file breakdowns) ----------------------------------
 with tab_pivots:
-    st.caption("Standard bulk-file breakdowns — ad type, placement, targeting, "
-               "SKU, search terms and more — computed live from your upload.")
+    st.caption("Standard bulk-file breakdowns, computed live from your upload. Filter any table and its Grand Total updates with the filter.")
     with st.spinner("Building pivot tables..."):
         all_pivots = _build_pivots(file_bytes)
     if not all_pivots:
         st.info("No pivot-able source sheets found in this file.")
     else:
         st.download_button(
-            "⬇️ Download ALL pivots (one Excel workbook)",
+            "Download all pivots (Excel workbook)",
             data=pv.to_excel_bytes(all_pivots),
             file_name="bulk_pivots.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -306,8 +276,25 @@ with tab_pivots:
         for stab, (src_label, tables) in zip(src_tabs, all_pivots.items()):
             with stab:
                 for tbl_label, tdf in tables:
-                    st.markdown(f"**{tbl_label}**  ·  {len(tdf) - 1} rows")
-                    st.dataframe(tdf, use_container_width=True, hide_index=True,
-                                 column_config=_pivot_colcfg(tdf))
+                    dim_cols = [c for c in tdf.columns if c not in pv.DISPLAY_COLS]
+                    st.markdown(f"**{tbl_label}**")
+                    q = st.text_input(
+                        f"Filter {dim_cols[0]}",
+                        key=f"flt_{src_label}_{tbl_label}",
+                        placeholder=f"Filter by {dim_cols[0]}",
+                        label_visibility="collapsed",
+                    )
+                    view = tdf
+                    if q:
+                        view = view[view[dim_cols[0]].astype(str).str.contains(q, case=False, na=False)]
+                    disp = pd.concat([view, pv.grand_total(view, dim_cols)], ignore_index=True)
+                    st.dataframe(disp, use_container_width=True, hide_index=True,
+                                 column_config=_pivot_colcfg(disp, cur))
                     fn = f"{src_label}_{tbl_label}.csv".replace(" ", "_").replace("×", "x")
-                    _csv_download(f"⬇️ {tbl_label} (CSV)", tdf, fn)
+                    _csv_download(f"Download {tbl_label} (CSV)", disp, fn)
+
+# Parser notes — kept at the very end
+if data["errors"]:
+    with st.expander("Parser notes"):
+        for err in data["errors"]:
+            st.caption(err)
