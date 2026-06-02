@@ -29,6 +29,7 @@ SHEETS = {
     "sb_multi":     "sb multi ad group campaigns",
     "sp_str":       "sp search term report",
     "sb_str":       "sb search term report",
+    "sd_campaigns": "sponsored display campaigns",
 }
 SOURCE_LABELS = {
     "sp_campaigns": "SP Campaigns",
