@@ -128,11 +128,17 @@ def _add_portfolio(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _normalise_campaign_name(df: pd.DataFrame) -> pd.DataFrame:
-    for col in df.columns:
-        if "Campaign Name" in col and col != "Campaign Name":
-            df = df.rename(columns={col: "Campaign Name"})
-            break
-    return df
+    if "Campaign Name" not in df.columns:
+        match = None
+        for col in df.columns:
+            if "campaign name" in str(col).lower():
+                match = col
+                break
+        if match is not None:
+            df = df.rename(columns={match: "Campaign Name"})
+        else:
+            df["Campaign Name"] = ""
+    return df.loc[:, ~df.columns.duplicated()]
 
 
 def _normalise_ad_group(df: pd.DataFrame) -> pd.DataFrame:
@@ -158,6 +164,7 @@ def _load_campaign_sheet(
         return None
 
     # Deduplicate column names (some bulk sheets repeat column headers)
+    df.columns = [str(c).strip() for c in df.columns]
     df = df.loc[:, ~df.columns.duplicated()]
 
     df["Sponsored Type"] = sponsored_type
@@ -204,6 +211,7 @@ def _load_str_sheet(
     if df.empty:
         return None
 
+    df.columns = [str(c).strip() for c in df.columns]
     df = df.loc[:, ~df.columns.duplicated()]
 
     df["Sponsored Type"] = sponsored_type
