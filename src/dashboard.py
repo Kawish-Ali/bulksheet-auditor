@@ -206,11 +206,12 @@ def fig_acos_spend_bubble(sp_raw, target=35.0, cur="$"):
     t = pv.build(sp_raw, ["Campaign name"], "Campaign")
     if t is None or t.empty:
         return None
+    dim = next(c for c in t.columns if c not in pv.DISPLAY_COLS)
     d = t[t["Spend"] > 0].copy()
     sizes = (d["Sales"] ** 0.5)
     sizes = sizes.clip(lower=5, upper=55) if sizes.max() > 0 else 8
     fig = go.Figure(go.Scatter(
-        x=d["Spend"], y=d["ACOS"], mode="markers", text=d["Campaign name"],
+        x=d["Spend"], y=d["ACOS"], mode="markers", text=d[dim],
         marker=dict(size=sizes, color=d["ACOS"], cmin=0, cmax=80, showscale=False,
                     colorscale=[[0, _GREEN], [0.45, _AMBER], [1, _RED]], line=dict(width=0.5, color="#fff")),
         hovertemplate="%{text}<br>Spend " + cur + "%{x:,.0f}<br>ACoS %{y:.1f}%<br>Sales " + cur + "%{customdata:,.0f}<extra></extra>",
@@ -226,10 +227,11 @@ def fig_pareto(sp_raw, cur="$"):
     t = pv.build(sp_raw, ["Portfolio name (Informational only)"], "Campaign")
     if t is None or t.empty:
         return None
+    dim = next(c for c in t.columns if c not in pv.DISPLAY_COLS)
     d = t.sort_values("Spend", ascending=False).copy()
     tot = d["Spend"].sum()
     d["cum"] = d["Spend"].cumsum() / tot * 100 if tot else 0
-    x = d["Portfolio name (Informational only)"]
+    x = d[dim]
     fig = go.Figure()
     fig.add_bar(x=x, y=d["Spend"], marker_color=_ADTYPE_BLUE, name="Spend")
     fig.add_trace(go.Scatter(x=x, y=d["cum"], yaxis="y2", mode="lines+markers",
@@ -243,9 +245,10 @@ def fig_top_campaigns(sp_raw, n=15, cur="$"):
     t = pv.build(sp_raw, ["Campaign name"], "Campaign")
     if t is None or t.empty:
         return None
+    dim = next(c for c in t.columns if c not in pv.DISPLAY_COLS)
     d = t.sort_values("Spend", ascending=False).head(n).iloc[::-1]
     fig = go.Figure(go.Bar(
-        x=d["Spend"], y=d["Campaign name"], orientation="h",
+        x=d["Spend"], y=d[dim], orientation="h",
         marker_color=[_acos_color(a) for a in d["ACOS"]],
         text=[f"{cur}{v:,.0f}" for v in d["Spend"]], textposition="outside",
         customdata=d["ACOS"], hovertemplate="%{y}<br>Spend " + cur + "%{x:,.0f}<br>ACoS %{customdata:.1f}%<extra></extra>"))
@@ -255,7 +258,8 @@ def fig_top_campaigns(sp_raw, n=15, cur="$"):
     return fig
 
 
-def _spend_acos_combo(t, dim, cur):
+def _spend_acos_combo(t, cur):
+    dim = next(c for c in t.columns if c not in pv.DISPLAY_COLS)
     d = t.sort_values("Spend", ascending=False)
     fig = go.Figure()
     fig.add_bar(x=d[dim], y=d["Spend"], marker_color=_ADTYPE_BLUE, name="Spend")
@@ -268,12 +272,12 @@ def _spend_acos_combo(t, dim, cur):
 
 def fig_placement(sp_raw, cur="$"):
     t = pv.build(sp_raw, ["Placement"], "Bidding adjustment")
-    return _spend_acos_combo(t, "Placement", cur) if t is not None and not t.empty else None
+    return _spend_acos_combo(t, cur) if t is not None and not t.empty else None
 
 
 def fig_match_type(sp_raw, cur="$"):
     t = pv.build(sp_raw, ["Match type"], None)
-    return _spend_acos_combo(t, "Match type", cur) if t is not None and not t.empty else None
+    return _spend_acos_combo(t, cur) if t is not None and not t.empty else None
 
 
 def fig_adtype_comparison(frames, cur="$"):
