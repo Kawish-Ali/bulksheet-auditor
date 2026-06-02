@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPC Audit Report{% if account_id %} — {{ account_id }}{% endif %}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;color:#1a1a2e;font-size:14px;line-height:1.5}
+  a{color:#4361ee;text-decoration:none}
+
+  /* Layout */
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px}
+
+  /* Header */
+  .header{background:linear-gradient(135deg,#0d1b2a 0%,#1b2838 100%);color:#fff;border-radius:12px;padding:28px 32px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+  .header h1{font-size:22px;font-weight:700;letter-spacing:-0.5px}
+  .header .meta{font-size:12px;color:#a8b2c1;margin-top:4px}
+  .score-badge{text-align:center;background:rgba(255,255,255,0.08);border-radius:12px;padding:16px 24px;min-width:120px}
+  .score-badge .score-num{font-size:42px;font-weight:800;line-height:1}
+  .score-badge .score-label{font-size:11px;color:#a8b2c1;margin-top:4px;text-transform:uppercase;letter-spacing:1px}
+  .score-green{color:#2ecc71}
+  .score-amber{color:#f39c12}
+  .score-red{color:#e74c3c}
+
+  /* KPI Cards */
+  .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+  .kpi-card{background:#fff;border-radius:10px;padding:16px 18px;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+  .kpi-card .kpi-label{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px}
+  .kpi-card .kpi-value{font-size:22px;font-weight:700;color:#1a1a2e}
+  .kpi-card .kpi-sub{font-size:11px;color:#aaa;margin-top:2px}
+
+  /* Sections */
+  .section{background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+  .section-title{font-size:15px;font-weight:700;color:#1a1a2e;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #eef0f3;display:flex;align-items:center;gap:8px}
+  .section-title .icon{font-size:16px}
+
+  /* Findings */
+  .finding{border-radius:8px;padding:14px 16px;margin-bottom:10px;border-left:4px solid}
+  .finding-critical{background:#fff5f5;border-color:#e74c3c}
+  .finding-warning{background:#fffbf0;border-color:#f39c12}
+  .finding-info{background:#f0f7ff;border-color:#4361ee}
+  .finding-title{font-weight:600;font-size:13px;margin-bottom:4px}
+  .finding-detail{font-size:12px;color:#666;margin-bottom:8px}
+  .badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px;margin-right:6px}
+  .badge-critical{background:#fde8e8;color:#c0392b}
+  .badge-warning{background:#fef9e7;color:#d68910}
+  .badge-info{background:#e8f0fe;color:#2c5fd9}
+
+  /* Tables */
+  .table-wrap{overflow-x:auto;margin-top:10px}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{background:#f8f9fb;color:#555;font-weight:600;text-align:left;padding:8px 10px;border-bottom:2px solid #eef0f3;white-space:nowrap}
+  td{padding:7px 10px;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#fafbfc}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .acos-green{color:#27ae60;font-weight:600}
+  .acos-amber{color:#e67e22;font-weight:600}
+  .acos-red{color:#c0392b;font-weight:600}
+
+  /* Toggle */
+  details summary{cursor:pointer;font-size:12px;color:#4361ee;margin-top:6px;user-select:none}
+  details summary:hover{text-decoration:underline}
+
+  /* Recommendations */
+  .rec{border-radius:8px;border:1px solid #e8ecf0;padding:16px 18px;margin-bottom:12px}
+  .rec-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+  .rec-num{background:#4361ee;color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+  .rec-title{font-weight:700;font-size:14px;color:#1a1a2e}
+  .rec-issue{font-size:12px;color:#555;margin-bottom:8px}
+  .rec-action{font-size:12px;background:#f8f9fb;border-radius:6px;padding:10px 12px;margin-bottom:8px;white-space:pre-line;color:#333;line-height:1.6}
+  .rec-impact{font-size:12px;color:#27ae60;font-weight:600}
+  .rec-affected{font-size:11px;color:#888;margin-top:4px}
+
+  /* Errors */
+  .errors{background:#fff5f5;border:1px solid #fcc;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:#c0392b}
+  .errors ul{margin-left:16px;margin-top:4px}
+
+  /* Footer */
+  .footer{text-align:center;font-size:11px;color:#aaa;margin-top:24px;padding-bottom:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="header h1">PPC Bulk Sheet Audit</div>
+      {% if account_id %}
+      <div class="meta">{{ account_id }}</div>
+      {% endif %}
+      {% if date_range %}
+      <div class="meta">{{ date_range }}</div>
+      {% endif %}
+      <div class="meta">Sheets loaded: {{ sheets_found | join(', ') }}</div>
+    </div>
+    <div class="score-badge">
+      <div class="score-num {% if score >= 75 %}score-green{% elif score >= 50 %}score-amber{% else %}score-red{% endif %}">{{ score }}</div>
+      <div class="score-label">Health Score</div>
+    </div>
+  </div>
+
+  <!-- Parse errors -->
+  {% if errors %}
+  <div class="errors">
+    <strong>Warnings:</strong>
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <!-- KPI Cards -->
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-label">Total Spend</div>
+      <div class="kpi-value">{{ summary.total_spend | fmt_currency }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total Sales</div>
+      <div class="kpi-value">{{ summary.total_sales | fmt_currency }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">ACoS</div>
+      <div class="kpi-value {% if summary.acos %}{% if summary.acos <= 0.20 %}acos-green{% elif summary.acos <= 0.35 %}acos-amber{% else %}acos-red{% endif %}{% endif %}">
+        {{ summary.acos | fmt_pct if summary.acos is not none else '—' }}
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">ROAS</div>
+      <div class="kpi-value">{{ summary.roas | fmt_ratio if summary.roas is not none else '—' }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Clicks</div>
+      <div class="kpi-value">{{ summary.total_clicks | fmt_int }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Orders</div>
+      <div class="kpi-value">{{ summary.total_orders | fmt_int }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">CVR</div>
+      <div class="kpi-value">{{ summary.cvr | fmt_pct if summary.cvr is not none else '—' }}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">CPC</div>
+      <div class="kpi-value">{{ summary.cpc | fmt_currency if summary.cpc is not none else '—' }}</div>
+    </div>
+  </div>
+
+  <!-- Findings by module -->
+  {% for module_name, module_findings in findings_by_module.items() %}
+  <div class="section">
+    <div class="section-title">
+      <span class="icon">
+        {% if module_name == 'Campaign Health' %}📊
+        {% elif module_name == 'Keyword Quality' %}🔑
+        {% elif module_name == 'Search Terms' %}🔍
+        {% elif module_name == 'Structure' %}🏗️
+        {% else %}📋{% endif %}
+      </span>
+      {{ module_name }}
+      <span style="margin-left:auto;font-size:11px;color:#aaa;font-weight:400">{{ module_findings | length }} finding(s)</span>
+    </div>
+
+    {% if module_findings %}
+      {% for finding in module_findings %}
+      <div class="finding finding-{{ finding.severity }}">
+        <div class="finding-title">
+          <span class="badge badge-{{ finding.severity }}">{{ finding.severity }}</span>
+          {{ finding.title }}
+        </div>
+        <div class="finding-detail">{{ finding.detail }}</div>
+
+        {% if finding.table_html %}
+        <details>
+          <summary>Show affected data ({{ finding.row_count }} rows)</summary>
+          <div class="table-wrap">{{ finding.table_html | safe }}</div>
+        </details>
+        {% elif finding.list_items %}
+        <details>
+          <summary>Show {{ finding.list_items | length }} affected campaigns</summary>
+          <div style="font-size:12px;color:#555;margin-top:8px;line-height:1.8">
+            {{ finding.list_items | join(' · ') }}
+          </div>
+        </details>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="font-size:13px;color:#27ae60;padding:8px 0">✓ No issues found in this area.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <!-- Recommendations -->
+  {% if recommendations %}
+  <div class="section">
+    <div class="section-title">
+      <span class="icon">💡</span>
+      Prioritized Action Plan
+      <span style="margin-left:auto;font-size:11px;color:#aaa;font-weight:400">Top {{ recommendations | length }} recommendations</span>
+    </div>
+
+    {% for rec in recommendations %}
+    <div class="rec">
+      <div class="rec-header">
+        <div class="rec-num">{{ rec.priority }}</div>
+        <div>
+          <div class="rec-title">{{ rec.title }}</div>
+          {% if rec.affected_summary %}
+          <div class="rec-affected">{{ rec.affected_summary }}</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="rec-issue">{{ rec.issue }}</div>
+      <div class="rec-action">{{ rec.action }}</div>
+      <div class="rec-impact">Expected impact: {{ rec.expected_impact }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="footer">Generated by BulkSheet Auditor 2.0 · Exomerce</div>
+</div>
+</body>
+</html>
