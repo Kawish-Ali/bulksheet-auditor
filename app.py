@@ -138,6 +138,45 @@ def _format_pivot_display(df, cur):
     return out
 
 
+_METRIC_COLS = ("Impressions", "Clicks", "CTR", "Orders", "CNVR", "CPC", "CPA", "Spend", "Sales", "ACOS")
+
+
+def _table_filters(tdf, key):
+    """Multi-condition filter builder for a pivot table. Pick columns, then set
+    numeric ranges (metrics) or value/text filters (dimensions). AND-combined.
+    Returns the filtered detail DataFrame (Grand Total is recomputed by caller)."""
+    out = tdf
+    with st.expander("Filters"):
+        chosen = st.multiselect("Add filters on columns", list(tdf.columns), key=f"{key}_cols")
+        if not chosen:
+            st.caption("Select one or more columns to filter. Conditions combine with AND.")
+        for col in chosen:
+            ser = tdf[col]
+            is_num = col in _METRIC_COLS or pd.api.types.is_numeric_dtype(ser)
+            if is_num:
+                s = pd.to_numeric(ser, errors="coerce")
+                lo = float(s.min()) if s.notna().any() else 0.0
+                hi = float(s.max()) if s.notna().any() else 0.0
+                c1, c2 = st.columns(2)
+                mn = c1.number_input(f"{col} — min", value=lo, key=f"{key}_{col}_min")
+                mx = c2.number_input(f"{col} — max", value=hi, key=f"{key}_{col}_max")
+                if mn != lo or mx != hi:   # only filter once narrowed (keeps blanks at default)
+                    sn = pd.to_numeric(out[col], errors="coerce")
+                    out = out[sn.between(mn, mx)]
+            else:
+                vals = sorted(ser.dropna().astype(str).unique())
+                if 0 < len(vals) <= 40:
+                    sel = st.multiselect(col, vals, default=vals, key=f"{key}_{col}_sel")
+                    if set(sel) != set(vals):
+                        out = out[out[col].astype(str).isin(sel)]
+                else:
+                    q = st.text_input(f"{col} contains", key=f"{key}_{col}_q",
+                                      placeholder="type to filter…")
+                    if q:
+                        out = out[out[col].astype(str).str.contains(q, case=False, na=False)]
+    return out
+
+
 acos_target = cfg.ACOS_TARGET
 brand_terms = ()
 
@@ -249,15 +288,7 @@ with tab_pivots:
                 for tbl_label, tdf in tables:
                     dim_cols = [c for c in tdf.columns if c not in pv.DISPLAY_COLS]
                     st.markdown(f"**{tbl_label}**")
-                    q = st.text_input(
-                        f"Filter {dim_cols[0]}",
-                        key=f"flt_{src_label}_{tbl_label}",
-                        placeholder=f"Filter by {dim_cols[0]}",
-                        label_visibility="collapsed",
-                    )
-                    view = tdf
-                    if q:
-                        view = view[view[dim_cols[0]].astype(str).str.contains(q, case=False, na=False)]
+                    view = _table_filters(tdf, f"flt_{src_label}_{tbl_label}")
                     disp = pd.concat([view, pv.grand_total(view, dim_cols)], ignore_index=True)
                     st.dataframe(_format_pivot_display(disp, cur),
                                  use_container_width=True, hide_index=True)
