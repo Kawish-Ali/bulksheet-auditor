@@ -295,6 +295,13 @@ with tab_pivots:
     if not all_pivots:
         st.info("No pivot-able source sheets found in this file.")
     else:
+        st.download_button(
+            "⬇️ Download ALL pivots (one Excel workbook)",
+            data=pv.to_excel_bytes(all_pivots),
+            file_name="bulk_pivots.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
         src_tabs = st.tabs(list(all_pivots.keys()))
         for stab, (src_label, tables) in zip(src_tabs, all_pivots.items()):
             with stab:
