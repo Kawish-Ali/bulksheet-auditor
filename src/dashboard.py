@@ -114,15 +114,15 @@ def search_term_table(data: dict) -> pd.DataFrame:
 
 # ── Charts ───────────────────────────────────────────────────────────────────
 
-def spend_vs_sales(df: pd.DataFrame, group_col: str) -> go.Figure:
+def spend_vs_sales(df: pd.DataFrame, group_col: str, cur: str = "$") -> go.Figure:
     fig = go.Figure()
     fig.add_bar(name="Spend", x=df[group_col], y=df["Spend"], marker_color="#DC2626",
-                text=[f"${v:,.0f}" for v in df["Spend"]], textposition="outside")
+                text=[f"{cur}{v:,.0f}" for v in df["Spend"]], textposition="outside")
     fig.add_bar(name="Sales", x=df[group_col], y=df["Sales"], marker_color="#16A34A",
-                text=[f"${v:,.0f}" for v in df["Sales"]], textposition="outside")
+                text=[f"{cur}{v:,.0f}" for v in df["Sales"]], textposition="outside")
     fig.update_layout(
         barmode="group", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        yaxis=dict(tickprefix="$", gridcolor="#e5e7eb"), xaxis=dict(gridcolor="#e5e7eb"),
+        yaxis=dict(tickprefix=cur, gridcolor="#e5e7eb"), xaxis=dict(gridcolor="#e5e7eb"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(t=40, b=20, l=10, r=10), height=360,
     )
