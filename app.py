@@ -77,16 +77,9 @@ def _csv_download(label, df, filename):
                        file_name=filename, mime="text/csv", use_container_width=True)
 
 
-# ── Sidebar ──────────────────────────────────────────────────────────────────
-st.sidebar.title("⚙️ Settings")
-acos_target = st.sidebar.slider("ACoS target", 0.05, 1.0, cfg.ACOS_TARGET, 0.05,
-                                format="%.0f%%", help="Used for scoring and chart thresholds")
-brand_raw = st.sidebar.text_input("Brand term(s)", "",
-                                  help="Comma-separated, e.g. Yookidoo. Used to flag branded search terms.")
-brand_terms = tuple(t.strip() for t in brand_raw.split(",") if t.strip())
-
-st.sidebar.markdown("---")
-st.sidebar.caption("Built by Exomerce · AI-Powered Amazon Growth")
+# Defaults (sidebar removed — runs with sensible defaults)
+acos_target = cfg.ACOS_TARGET   # 30% target for scoring + chart thresholds
+brand_terms = ()                # no branded-term classification by default
 
 
 # ── Header ───────────────────────────────────────────────────────────────────
