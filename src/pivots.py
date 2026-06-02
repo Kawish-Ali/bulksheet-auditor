@@ -146,14 +146,17 @@ def build(df: pd.DataFrame, rows: list, entity=None, extra=None):
     if g.empty:
         return None
     g = _ratios(g).sort_values("Spend", ascending=False)
+    return g[group_cols + DISPLAY_COLS]
 
-    gt = {r: ("Grand Total" if i == 0 else "") for i, r in enumerate(group_cols)}
+
+def grand_total(detail: pd.DataFrame, group_cols: list) -> pd.DataFrame:
+    """Grand Total row recomputed from (possibly filtered) detail rows."""
+    row = {c: "" for c in group_cols}
+    if group_cols:
+        row[group_cols[0]] = "Grand Total"
     for c in BASE:
-        gt[c] = g[c].sum()
-    gt_row = _ratios(pd.DataFrame([gt]))
-
-    out = pd.concat([g, gt_row], ignore_index=True)
-    return out[group_cols + DISPLAY_COLS]
+        row[c] = pd.to_numeric(detail[c], errors="coerce").fillna(0).sum() if c in detail.columns else 0.0
+    return _ratios(pd.DataFrame([row]))[group_cols + DISPLAY_COLS]
 
 
 def load_raw_sheets(source) -> dict:
@@ -210,7 +213,9 @@ def to_excel_bytes(all_pivots: dict) -> bytes:
                     name = base[:31 - len(sfx)] + sfx
                     i += 1
                 used.add(name.lower())
-                df.to_excel(xw, sheet_name=name, index=False)
+                gcols = [c for c in df.columns if c not in DISPLAY_COLS]
+                full = pd.concat([df, grand_total(df, gcols)], ignore_index=True)
+                full.to_excel(xw, sheet_name=name, index=False)
                 wrote = True
         if not wrote:
             pd.DataFrame({"info": ["No pivots available"]}).to_excel(xw, sheet_name="Empty", index=False)
