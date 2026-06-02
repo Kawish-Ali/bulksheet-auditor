@@ -51,6 +51,11 @@ def _build_pivots(file_bytes: bytes):
     return pv.build_all(io.BytesIO(file_bytes))
 
 
+@st.cache_data(show_spinner=False)
+def _raw_sheets(file_bytes: bytes):
+    return pv.load_raw_sheets(io.BytesIO(file_bytes))
+
+
 def _money(v, cur):
     try:
         return f"{cur}{float(v):,.2f}"
@@ -84,6 +89,13 @@ def _csv_download(label, df, filename):
         return
     st.download_button(label, df.to_csv(index=False).encode("utf-8"),
                        file_name=filename, mime="text/csv", use_container_width=True)
+
+
+def _chart(fig, msg="No data available for this chart."):
+    if fig is not None:
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.caption(msg)
 
 
 def _format_pivot_display(df, cur):
@@ -289,30 +301,46 @@ st.markdown("---")
 tab_overview, tab_pivots = st.tabs(["Overview", "Pivots"])
 
 with tab_overview:
-    type_agg = dash.by_sponsored_type(data)
+    raw = _raw_sheets(file_bytes)
+    sp_raw = raw.get("sp_campaigns", pd.DataFrame())
+    sb_parts = [raw.get("sb_campaigns"), raw.get("sb_multi")]
+    sb_parts = [f for f in sb_parts if f is not None and not f.empty]
+    sb_all = pd.concat(sb_parts, ignore_index=True) if sb_parts else pd.DataFrame()
+    sd_raw = raw.get("sd_campaigns", pd.DataFrame())
+    adtype_frames = {"SP": sp_raw, "SB": sb_all, "SD": sd_raw}
+    tgt = acos_target * 100
+
+    st.subheader("ACoS vs Spend by Campaign")
+    st.caption("Bubble size = Sales. Lower-left is efficient; upper-right (high spend, high ACoS) is where to cut or fix.")
+    _chart(dash.fig_acos_spend_bubble(sp_raw, tgt, cur), "No Sponsored Products campaign data.")
+
     c1, c2 = st.columns(2)
-    if not type_agg.empty:
-        with c1:
-            st.subheader("Spend vs Sales by Ad Type")
-            st.plotly_chart(dash.spend_vs_sales(type_agg, "Sponsored Type", cur), use_container_width=True)
-        with c2:
-            st.subheader("ACoS by Ad Type")
-            st.plotly_chart(dash.acos_bar(type_agg, "Sponsored Type", acos_target * 100), use_container_width=True)
-    port_agg = dash.by_portfolio(data)
-    mt = dash.match_type_spend(data)
+    with c1:
+        st.subheader("Spend Concentration (Pareto)")
+        _chart(dash.fig_pareto(sp_raw, cur), "No portfolio data.")
+    with c2:
+        st.subheader("Conversion Funnel")
+        _chart(dash.fig_funnel(s.total_impressions, s.total_clicks, s.total_orders))
+
     c3, c4 = st.columns(2)
-    if not port_agg.empty:
-        with c3:
-            st.subheader("ACoS by Portfolio (top spenders)")
-            st.plotly_chart(dash.acos_bar(port_agg, "Portfolio", acos_target * 100), use_container_width=True)
-    if not mt.empty:
-        with c4:
-            st.subheader("Spend by Match Type")
-            st.plotly_chart(dash.match_type_donut(mt), use_container_width=True)
-    intent_df = _finding_affected(report, "INTENT_BREAKDOWN")
-    if not intent_df.empty:
-        st.subheader("Search Term Intent (by spend)")
-        st.plotly_chart(dash.intent_donut(intent_df), use_container_width=True)
+    with c3:
+        st.subheader("Placement Performance")
+        _chart(dash.fig_placement(sp_raw, cur), "No placement data.")
+    with c4:
+        st.subheader("Match Type Efficiency")
+        _chart(dash.fig_match_type(sp_raw, cur), "No match-type data.")
+
+    c5, c6 = st.columns(2)
+    with c5:
+        st.subheader("SP vs SB vs SD")
+        _chart(dash.fig_adtype_comparison(adtype_frames, cur), "No ad-type data.")
+    with c6:
+        st.subheader("Wasted vs Converting Spend")
+        _chart(dash.fig_wasted(adtype_frames, cur), "No ad-type data.")
+
+    st.subheader("Top Campaigns by Spend")
+    st.caption("Bars colored by ACoS: green \u2264 20%, amber \u2264 35%, red > 35%.")
+    _chart(dash.fig_top_campaigns(sp_raw, 15, cur), "No campaign data.")
 
 with tab_pivots:
     st.caption("Standard bulk-file breakdowns, computed live from your upload. Filter any table and its Grand Total updates with the filter.")
