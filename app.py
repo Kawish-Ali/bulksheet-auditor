@@ -26,6 +26,7 @@ from src.parser import load_bulk_file
 from src.auditor import run_audit
 from src.recommender import generate_recommendations
 from src import dashboard as dash
+from src import pivots as pv
 
 st.set_page_config(page_title="BulkSheet Auditor 2.0", page_icon="📊", layout="wide")
 
@@ -53,6 +54,24 @@ def _process(file_bytes: bytes, acos_target: float, brand_terms: tuple):
     report = run_audit(data, brand_terms=list(brand_terms) if brand_terms else None)
     recs = generate_recommendations(report)
     return data, report, recs
+
+
+@st.cache_data(show_spinner=False)
+def _build_pivots(file_bytes: bytes):
+    import io
+    return pv.build_all(io.BytesIO(file_bytes))
+
+
+def _pivot_colcfg(df):
+    cfg = {}
+    for c in df.columns:
+        if c in ("Impressions", "Clicks", "Orders"):
+            cfg[c] = st.column_config.NumberColumn(format="%d")
+        elif c in ("Spend", "Sales", "CPC", "CPA"):
+            cfg[c] = st.column_config.NumberColumn(format="$%.2f")
+        elif c in ("CTR", "CNVR", "ACOS"):
+            cfg[c] = st.column_config.NumberColumn(format="%.2f%%")
+    return cfg
 
 
 def _fmt_pct(v):
@@ -154,8 +173,8 @@ with top[1]:
 st.markdown("---")
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────
-tab_overview, tab_findings, tab_terms, tab_actions = st.tabs(
-    ["📈 Overview", "🔎 Findings", "🔍 Search Terms", "💡 Action Plan"]
+tab_overview, tab_findings, tab_terms, tab_actions, tab_pivots = st.tabs(
+    ["📈 Overview", "🔎 Findings", "🔍 Search Terms", "💡 Action Plan", "📐 Pivots"]
 )
 
 # ---- Overview (charts) -------------------------------------------------------
@@ -265,3 +284,23 @@ with tab_actions:
     with e[2]:
         _csv_download("High-ACoS keywords",
                       _finding_affected(report, "HIGH_ACOS_KEYWORDS"), "high_acos_keywords.csv")
+
+
+# ---- Pivots (dynamic bulk-file breakdowns) ----------------------------------
+with tab_pivots:
+    st.caption("Standard bulk-file breakdowns — ad type, placement, targeting, "
+               "SKU, search terms and more — computed live from your upload.")
+    with st.spinner("Building pivot tables..."):
+        all_pivots = _build_pivots(file_bytes)
+    if not all_pivots:
+        st.info("No pivot-able source sheets found in this file.")
+    else:
+        src_tabs = st.tabs(list(all_pivots.keys()))
+        for stab, (src_label, tables) in zip(src_tabs, all_pivots.items()):
+            with stab:
+                for tbl_label, tdf in tables:
+                    st.markdown(f"**{tbl_label}**  ·  {len(tdf) - 1} rows")
+                    st.dataframe(tdf, use_container_width=True, hide_index=True,
+                                 column_config=_pivot_colcfg(tdf))
+                    fn = f"{src_label}_{tbl_label}.csv".replace(" ", "_").replace("×", "x")
+                    _csv_download(f"⬇️ {tbl_label} (CSV)", tdf, fn)
