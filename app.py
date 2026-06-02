@@ -142,38 +142,84 @@ _METRIC_COLS = ("Impressions", "Clicks", "CTR", "Orders", "CNVR", "CPC", "CPA", 
 
 
 def _table_filters(tdf, key):
-    """Multi-condition filter builder for a pivot table. Pick columns, then set
-    numeric ranges (metrics) or value/text filters (dimensions). AND-combined.
-    Returns the filtered detail DataFrame (Grand Total is recomputed by caller)."""
+    """Google Sheets-style per-column filters: each chosen column can be filtered
+    'by values' (searchable checklist) or 'by condition' (operator + value).
+    Conditions combine with AND. Returns the filtered detail DataFrame."""
     out = tdf
     with st.expander("Filters"):
-        chosen = st.multiselect("Add filters on columns", list(tdf.columns), key=f"{key}_cols")
+        chosen = st.multiselect("Columns to filter", list(tdf.columns), key=f"{key}_cols")
         if not chosen:
-            st.caption("Select one or more columns to filter. Conditions combine with AND.")
+            st.caption("Pick one or more columns. Each can be filtered by values or by a "
+                       "condition (like Google Sheets); all conditions combine with AND.")
         for col in chosen:
-            ser = tdf[col]
-            is_num = col in _METRIC_COLS or pd.api.types.is_numeric_dtype(ser)
-            if is_num:
-                s = pd.to_numeric(ser, errors="coerce")
-                lo = float(s.min()) if s.notna().any() else 0.0
-                hi = float(s.max()) if s.notna().any() else 0.0
-                c1, c2 = st.columns(2)
-                mn = c1.number_input(f"{col} — min", value=lo, key=f"{key}_{col}_min")
-                mx = c2.number_input(f"{col} — max", value=hi, key=f"{key}_{col}_max")
-                if mn != lo or mx != hi:   # only filter once narrowed (keeps blanks at default)
-                    sn = pd.to_numeric(out[col], errors="coerce")
-                    out = out[sn.between(mn, mx)]
-            else:
-                vals = sorted(ser.dropna().astype(str).unique())
-                if 0 < len(vals) <= 40:
-                    sel = st.multiselect(col, vals, default=vals, key=f"{key}_{col}_sel")
-                    if set(sel) != set(vals):
-                        out = out[out[col].astype(str).isin(sel)]
+            st.markdown(f"**{col}**")
+            full = tdf[col]
+            is_num = col in _METRIC_COLS or pd.api.types.is_numeric_dtype(full)
+            mode = st.radio("Filter type", ["By values", "By condition"], horizontal=True,
+                            key=f"{key}_{col}_mode", label_visibility="collapsed")
+
+            if mode == "By values":
+                vals = sorted(full.dropna().astype(str).unique())
+                default = vals if len(vals) <= 100 else []
+                if not default:
+                    st.caption(f"{len(vals):,} values — pick specific ones to filter, or leave empty to show all.")
+                sel = st.multiselect("Show values", vals, default=default,
+                                     key=f"{key}_{col}_vals", label_visibility="collapsed")
+                if sel and set(sel) != set(vals):
+                    out = out[out[col].astype(str).isin(sel)]
+
+            elif is_num:
+                s_all = pd.to_numeric(full, errors="coerce")
+                lo = float(s_all.min()) if s_all.notna().any() else 0.0
+                hi = float(s_all.max()) if s_all.notna().any() else 0.0
+                op = st.selectbox("Condition",
+                    ["Greater than", "Greater than or equal to", "Less than",
+                     "Less than or equal to", "Is equal to", "Is not equal to",
+                     "Is between", "Is not between"],
+                    key=f"{key}_{col}_op", label_visibility="collapsed")
+                s = pd.to_numeric(out[col], errors="coerce")
+                if op in ("Is between", "Is not between"):
+                    c1, c2 = st.columns(2)
+                    a = c1.number_input("Min", value=lo, key=f"{key}_{col}_a")
+                    b = c2.number_input("Max", value=hi, key=f"{key}_{col}_b")
+                    if a != lo or b != hi:
+                        m = s.between(a, b)
+                        out = out[m if op == "Is between" else (~m & s.notna())]
                 else:
-                    q = st.text_input(f"{col} contains", key=f"{key}_{col}_q",
-                                      placeholder="type to filter…")
-                    if q:
-                        out = out[out[col].astype(str).str.contains(q, case=False, na=False)]
+                    v = st.number_input("Value", value=0.0, key=f"{key}_{col}_v")
+                    ops = {
+                        "Greater than": s > v, "Greater than or equal to": s >= v,
+                        "Less than": s < v, "Less than or equal to": s <= v,
+                        "Is equal to": s == v, "Is not equal to": (s != v) & s.notna(),
+                    }
+                    out = out[ops[op]]
+
+            else:
+                op = st.selectbox("Condition",
+                    ["Contains", "Does not contain", "Starts with", "Ends with",
+                     "Is exactly", "Is empty", "Is not empty"],
+                    key=f"{key}_{col}_op", label_visibility="collapsed")
+                cs = out[col].astype(str)
+                blank = cs.str.strip().str.lower().isin(["", "nan", "none"])
+                if op == "Is empty":
+                    out = out[blank]
+                elif op == "Is not empty":
+                    out = out[~blank]
+                else:
+                    v = st.text_input("Value", key=f"{key}_{col}_tv", placeholder="value")
+                    if v:
+                        low = cs.str.lower(); vl = v.lower()
+                        if op == "Contains":
+                            out = out[cs.str.contains(v, case=False, na=False)]
+                        elif op == "Does not contain":
+                            out = out[~cs.str.contains(v, case=False, na=False)]
+                        elif op == "Starts with":
+                            out = out[low.str.startswith(vl)]
+                        elif op == "Ends with":
+                            out = out[low.str.endswith(vl)]
+                        elif op == "Is exactly":
+                            out = out[low == vl]
+            st.divider()
     return out
 
 
