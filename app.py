@@ -9,6 +9,7 @@ is processed in memory and never stored.
 
 import sys
 import io
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -96,6 +97,36 @@ def _chart(fig, msg="No data available for this chart."):
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.caption(msg)
+
+
+def _funnel_block(impr, clicks, orders):
+    """Conversion funnel as readable stage cards (counts + CTR/CVR), with a
+    subtle log-scaled taper so all stages stay visible regardless of magnitude."""
+    impr = int(impr or 0); clicks = int(clicks or 0); orders = int(orders or 0)
+    ctr = (clicks / impr * 100) if impr else 0.0
+    cvr = (orders / clicks * 100) if clicks else 0.0
+    vmax = max(impr, 1)
+
+    def w(v):
+        return 55 + 45 * (math.log10(v + 1) / math.log10(vmax + 1)) if vmax > 1 else 100.0
+
+    def stage(name, val, color, width):
+        return (f"<div style='width:{width:.0f}%;margin:0 auto;background:{color};color:#fff;"
+                f"border-radius:10px;padding:14px 10px;text-align:center'>"
+                f"<div style='font-size:11px;letter-spacing:1px;opacity:.85'>{name}</div>"
+                f"<div style='font-size:26px;font-weight:800;line-height:1.15'>{val:,}</div></div>")
+
+    def conn(label):
+        return (f"<div style='text-align:center;color:#6b7280;font-size:12px;margin:6px 0'>"
+                f"&#8595;&nbsp; {label}</div>")
+
+    return ("<div style='max-width:460px;margin:8px auto'>"
+            + stage("IMPRESSIONS", impr, "#2563EB", w(impr))
+            + conn(f"CTR {ctr:.2f}%")
+            + stage("CLICKS", clicks, "#7C3AED", w(clicks))
+            + conn(f"CVR {cvr:.2f}%")
+            + stage("ORDERS", orders, "#16A34A", w(orders))
+            + "</div>")
 
 
 def _format_pivot_display(df, cur):
@@ -320,7 +351,8 @@ with tab_overview:
         _chart(dash.fig_pareto(sp_raw, cur), "No portfolio data.")
     with c2:
         st.subheader("Conversion Funnel")
-        _chart(dash.fig_funnel(s.total_impressions, s.total_clicks, s.total_orders))
+        st.markdown(_funnel_block(s.total_impressions, s.total_clicks, s.total_orders),
+                    unsafe_allow_html=True)
 
     c3, c4 = st.columns(2)
     with c3:
